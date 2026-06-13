@@ -6,7 +6,11 @@ services:
     environment:
       - DATABASE_URL=postgresql+asyncpg://postgres:postgres@db:5432/telegram_clone
       - REDIS_URL=redis://redis:6379/0
-      - SECRET_KEY=your-secret-key-change-in-production-abc123xyz
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-in-production-abc123xyz}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY}
+      - DEEPSEEK_API_URL=${DEEPSEEK_API_URL:-https://api.deepseek.com/v1}
+    volumes:
+      - uploads:/app/uploads
     depends_on:
       db:
         condition: service_healthy
@@ -40,3 +44,4 @@ services:
 volumes:
   pgdata:
   redisdata:
+  uploads:

@@ -1,8 +1,8 @@
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,29 +10,12 @@ from app.config import settings
 from app.models.user import User
 
 
-# datetime, timedelta, timezone：处理时间，用于设置 token 过期时间。
-#
-# jose.JWTError, jwt：JWT 编解码库，用于生成和验证 JWT。
-#
-# passlib.context.CryptContext：密码哈希上下文，支持多种哈希算法（这里用 bcrypt）。
-#
-# sqlalchemy.select：构建查询语句
-
-
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-#创建一个密码哈希上下文，指定使用 bcrypt 算法。deprecated="auto" 表示自动处理过时算法。
-
-
-
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
-#接受明文密码，返回 bcrypt 哈希后的字符串。用于注册时存储用户密码。
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return pwd_context.verify(plain, hashed)
-#校验明文密码是否与哈希值匹配。用于登录时验证
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
 
