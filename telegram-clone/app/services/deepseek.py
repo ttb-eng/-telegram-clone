@@ -1,35 +1,72 @@
 import logging
 
 from openai import AsyncOpenAI
-
+import json
 from app.config import settings
+from app.services.tools import TOOLS,execute_tools
+
+from collections.abc import AsyncGenerator
 
 logger = logging.getLogger(__name__)
 
 
-async def get_ai_reply(message: str) -> str | None:
+async def get_ai_reply_with_tools(messages: list) -> AsyncGenerator[str, None]:
     if not settings.deepseek_api_key:
-        return None
+        yield "AI服务器未配置"
+        return
 
     try:
         client = AsyncOpenAI(
             api_key=settings.deepseek_api_key,
             base_url=settings.deepseek_api_url,
         )
-        resp = await client.chat.completions.create(
-            model="deepseek-chat",
-            messages=[
-                {
-                    "role": "system",
-                    "content": "You are a helpful assistant in a Telegram-like chat app. "
-                               "Keep replies concise and friendly, under 200 characters.",
-                },
-                {"role": "user", "content": message},
-            ],
-            max_tokens=200,
+        response = await client.chat.completions.create(
+            model="deepseek-v4-pro",
+            messages=messages,
+            tools=TOOLS,
+            tool_choice="auto",
+            max_tokens=2000,
             timeout=30,
+            stream=False,
         )
-        return resp.choices[0].message.content.strip()
+        reply=response.choices[0].message
+        while reply.tool_calls:
+            messages.append(reply.model_dump())
+            for ct in reply.tool_calls:
+                func_name=ct.function.name
+                func_args=json.loads(ct.function.arguments)
+                logger.info(f"AI调用了：{func_name}({func_args})")
+
+                result=await execute_tools(func_name, func_args)
+
+                messages.append({
+                    "role":"tool",
+                    "tool_call_id":ct.id,
+                    "content":result,
+
+                    })
+            response = await client.chat.completions.create(
+                model="deepseek-v4-pro",
+                messages=messages,
+                tools=TOOLS,
+                tool_choice="auto",
+                max_tokens=2000,
+                timeout=30,
+                stream=False,
+            )
+            reply=response.choices[0].message
+
+        stream = await client.chat.completions.create(
+            model="deepseek-v4-pro",
+            messages=messages,
+            max_tokens=2000,
+            timeout=30,
+            stream=True,
+        )
+        async for chunk in stream:
+            delta=chunk.choices[0].delta.content
+            if delta:
+                yield delta
     except Exception as e:
         logger.warning(f"DeepSeek API error: {e}")
-        return None
+        yield "AI回复出错"

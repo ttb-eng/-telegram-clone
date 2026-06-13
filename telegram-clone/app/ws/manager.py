@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from fastapi import WebSocket
 
+
 from app.services.auth import decode_access_token
 from app.redis_client import get_redis
 
@@ -93,9 +94,63 @@ async def handle_websocket(websocket: WebSocket):
                 content = payload.get("content", "")
                 msg_id = raw.get("msg_id", str(uuid.uuid4()))
 
+
+
+
                 receiver_uuid = uuid.UUID(receiver_str) if receiver_str else None
                 if receiver_uuid:
                     from app.redis_client import get_redis
+                    # 存消息到数据库
+                    from app.database import async_session_factory
+                    async with async_session_factory() as session:
+                        #查数据库，找到当前 WebSocket 用户对应的 User 对象。
+                        from sqlalchemy import select
+                        from app.models.user import User
+                        sender_result=await session.execute(select(User).where(User.id == user_id))
+                        sender_user=sender_result.scalar_one_or_none()
+
+                        #查 receiver 的用户对象
+                        receiver_result=await session.execute(select(User).where(User.id == receiver_uuid))
+                        receiver_user=receiver_result.scalar_one_or_none()
+
+                        if sender_user and receiver_user:
+                            from app.services.message import create_message
+                            await create_message(session,sender_user,receiver_user,content,"text")
+
+                            if receiver_user.username == 'ai_bot':
+                                from app.services.deepseek import get_ai_reply_with_tools
+                                from app.services.message import get_recent_context
+
+                                # 取最近 20 条聊天记录，构建上下文
+                                recent_msgs = await get_recent_context(
+                                    session, sender_user.id, receiver_user.id
+                                )
+
+                                context_messages = [
+                                    {"role": "system", "content": "你是一个乐于助人的AI助手，回答简洁准确。请使用中文回复。"}
+                                ]
+                                for msg in recent_msgs:
+                                    role = "user" if msg.sender_id == sender_user.id else "assistant"
+                                    context_messages.append({"role": role, "content": msg.content})
+
+                                full_reply = ""
+                                async for chunk in get_ai_reply_with_tools(context_messages):
+                                    full_reply += chunk
+
+                                await create_message(session, receiver_user, sender_user, full_reply, "text")
+                                ai_msg={
+                                    "type":"new_message",
+                                    "payload":{
+                                        "msg_id":str(uuid.uuid4()),
+                                        "sender_id":str(receiver_user.id),
+                                        "receiver_id":str(sender_user.id),
+                                        "content":full_reply,
+                                        "created_at":__import__("datetime").datetime.now().isoformat(),
+                                    },
+
+                                }
+                                await manager.send_personal(sender_user.id,ai_msg)
+                                
 
                     msg_payload = {
                         "type": "new_message",

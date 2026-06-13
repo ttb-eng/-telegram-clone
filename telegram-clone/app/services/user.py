@@ -62,9 +62,30 @@ async def search_users(db: AsyncSession, query: str, limit: int = 20) -> list[Us
     result = await db.execute(stmt)
     return list(result.scalars().all())
 
-async def delete_user(db:AsyncSession,user:User) -> User |None:
+async def delete_user(db: AsyncSession, user: User) -> User | None:
     await db.delete(user)
     await db.commit()
+
+
+async def create_ai_bot_user(db: AsyncSession) -> User:
+    result = await db.execute(select(User).where(User.username == "ai_bot"))
+    existing = result.scalar_one_or_none()
+    if existing:
+        return existing
+
+    from app.services.auth import hash_password
+    bot = User(
+        phone="+00000000000",
+        username="ai_bot",
+        display_name="AI 助手",
+        hashed_password=hash_password("dummy-password-not-for-login"),
+        bio="我是 AI 助手，基于 DeepSeek 构建",
+        avatar_url=None,
+    )
+    db.add(bot)
+    await db.commit()
+    await db.refresh(bot)
+    return bot
 
 
 # ilike 是大小写不敏感的模糊匹配（相当于 SQL 的 ILIKE）。

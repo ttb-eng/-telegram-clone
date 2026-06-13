@@ -93,6 +93,11 @@ async def init_db():
                 )
         await conn.run_sync(_migrate)
 
+    # Create AI Bot user
+    from app.services.user import create_ai_bot_user
+    async with async_session_factory() as session:
+        await create_ai_bot_user(session)
+
 #
 # init_db() 在应用启动时被 lifespan 调用，做两件事：
 #

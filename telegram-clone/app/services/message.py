@@ -151,6 +151,30 @@ async def get_conversations(
     return conversations
 
 
+async def get_recent_context(
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    peer_id: uuid.UUID,
+    limit: int = 20,
+) -> list[Message]:
+    """获取两个用户之间的最近 N 条消息，按时间正序，用于 AI 上下文。"""
+    stmt = (
+        select(Message)
+        .where(
+            or_(
+                and_(Message.sender_id == user_id, Message.receiver_id == peer_id),
+                and_(Message.sender_id == peer_id, Message.receiver_id == user_id),
+            )
+        )
+        .order_by(desc(Message.created_at))
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    messages = list(result.scalars().all())
+    messages.reverse()  # 转为正序（旧→新）
+    return messages
+
+
 async def recall_message(
     db: AsyncSession, message_id: uuid.UUID, user_id: uuid.UUID
 ) -> Message:
