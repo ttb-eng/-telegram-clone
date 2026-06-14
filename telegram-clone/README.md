@@ -2,7 +2,7 @@
 
 仿 Telegram 的实时通讯 API，基于 **FastAPI + PostgreSQL + Redis + WebSocket + AI** 构建。
 
-> 在线演示：http://47.94.175.132/docs （Swagger UI）
+> 在线演示：https://mytelegram.xyz/docs （Swagger UI）
 
 ---
 
