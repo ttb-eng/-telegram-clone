@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import init_db, close_db, get_db
 from app.redis_client import close_redis, get_redis
-from app.api import auth, users, friends, messages, upload
+from app.api import auth, users, friends, messages, upload, groups
 from app.api.deps import require_user
 from app.models.user import User
 from app.config import settings as app_settings
@@ -51,7 +51,9 @@ app.include_router(auth.router)
 app.include_router(users.router)
 app.include_router(friends.router)
 app.include_router(messages.router)
+app.include_router(messages.conversations_router)
 app.include_router(upload.router)
+app.include_router(groups.router)
 
 os.makedirs(app_settings.upload_dir, exist_ok=True)
 app.mount("/uploads", StaticFiles(directory=app_settings.upload_dir), name="uploads")

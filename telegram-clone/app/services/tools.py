@@ -1,13 +1,8 @@
 import logging
 from datetime import datetime
-import pytz
+
 import httpx
-import asyncio
-
-from duckduckgo_search import DDGS
-from urllib.parse import quote
-from bs4 import BeautifulSoup
-
+import pytz
 
 logger=logging.getLogger(__name__)
 CITY_TIMEZONE = {
@@ -108,23 +103,33 @@ async def _get_weather(city:str)->str:
         return f"{city} 天气: {resp.text.strip()}"
 
 
+
+
 async def _web_search(query: str) -> str:
-    url = f"https://cn.bing.com/search?q={quote(query)}"
-    headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    api_key = __import__("app.config", fromlist=["settings"]).settings.tavily_api_key
+    if not api_key:
+        return "搜索功能未配置（缺少 Tavily API Key）"
+
+    url = "https://api.tavily.com/search"
+    payload = {
+        "api_key": api_key,
+        "query": query,
+        "search_depth": "basic",
+        "max_results": 5,
+    }
     try:
-        async with httpx.AsyncClient(timeout=15, follow_redirects=True) as client:
-            resp = await client.get(url, headers=headers)
-            resp.encoding = "utf-8"
-            soup = BeautifulSoup(resp.text, "lxml")
-            results = []
-            for item in soup.select("li.b_algo")[:3]:
-                title_tag = item.select_one("h2 a")
-                snippet_tag = item.select_one(".b_caption p")
-                if title_tag:
-                    title = title_tag.get_text(strip=True)
-                    snippet = snippet_tag.get_text(strip=True) if snippet_tag else ""
-                    results.append(f"{title}: {snippet}")
-            return "\n".join(results) if results else f"未找到关于「{query}」的信息"
+        async with httpx.AsyncClient(timeout=15) as client:
+            resp = await client.post(url, json=payload)
+            data = resp.json()
+            results = data.get("results", [])
+            if not results:
+                return f"未找到关于「{query}」的信息"
+            lines = []
+            for r in results:
+                title = r.get("title", "")
+                snippet = r.get("content", "")
+                lines.append(f"{title}: {snippet}")
+            return "\n".join(lines)
     except Exception as e:
         return f"搜索失败: {e}"
 

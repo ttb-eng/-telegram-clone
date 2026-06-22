@@ -13,6 +13,7 @@
 | AI Bot + 连续对话 | 集成 DeepSeek API，支持多轮上下文记忆 |
 | Tool Calling | AI 可调用工具：查时间 / 查天气 / 联网搜索 |
 | WebSocket 实时通信 | 消息推送、在线状态、输入状态、离线消息队列 |
+| 群聊系统 | 创建群组、成员管理、消息多播广播 |
 | 异步架构 | FastAPI + SQLAlchemy Async + asyncpg 全异步链路 |
 | 部署上线 | 云服务器 + systemd + Nginx 反代 + PostgreSQL |
 
@@ -44,22 +45,26 @@ telegram-clone/
 │   ├── models/              # SQLAlchemy ORM 模型
 │   │   ├── user.py
 │   │   ├── friend.py
-│   │   └── message.py
+│   │   ├── message.py
+│   │   └── group.py
 │   ├── schemas/             # Pydantic 请求/响应模型
 │   │   ├── user.py
 │   │   ├── friend.py
-│   │   └── message.py
+│   │   ├── message.py
+│   │   └── group.py
 │   ├── api/                 # HTTP API 路由
 │   │   ├── auth.py          # 注册/登录
 │   │   ├── users.py         # 用户信息
 │   │   ├── friends.py       # 好友管理
 │   │   ├── messages.py      # 消息发送/历史/搜索/撤回
+│   │   ├── groups.py        # 群组管理
 │   │   └── upload.py        # 文件上传
 │   ├── services/            # 业务逻辑层
 │   │   ├── auth.py          # JWT 签发 & 验证
 │   │   ├── user.py
 │   │   ├── friend.py
 │   │   ├── message.py       # 含 AI 连续对话上下文
+│   │   ├── group.py         # 群组业务逻辑
 │   │   ├── deepseek.py      # DeepSeek AI 流式回复 + Tool Calling
 │   │   └── tools.py         # Tool Calling 工具定义
 │   └── ws/
@@ -143,7 +148,21 @@ systemctl status telegram-clone     # 查看状态
 | POST | `/api/messages/read/{peer_id}` | 标记已读 |
 | DELETE | `/api/messages/{msg_id}` | 撤回消息 |
 | GET | `/api/messages/search?q=` | 搜索消息 |
-| GET | `/api/conversations` | 会话列表 |
+| GET | `/api/conversations` | 会话列表（私聊+群聊） |
+
+### 群聊
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/groups` | 创建群组 |
+| GET | `/api/groups` | 我的群组列表 |
+| GET | `/api/groups/{id}` | 群组详情 |
+| PATCH | `/api/groups/{id}` | 修改群信息（群主/管理员） |
+| DELETE | `/api/groups/{id}` | 解散群组（群主） |
+| POST | `/api/groups/{id}/members` | 添加成员 |
+| DELETE | `/api/groups/{id}/members/{uid}` | 移除成员 |
+| GET | `/api/groups/{id}/members` | 成员列表 |
+| GET | `/api/groups/{id}/messages` | 群消息历史（分页） |
 
 ### 文件上传
 
@@ -164,6 +183,7 @@ systemctl status telegram-clone     # 查看状态
 | GET | `/api/offline-messages` | 拉取离线消息 |
 | GET | `/api/online/{user_id}` | 查询用户在线状态 |
 | GET | `/api/health` | 健康检查 |
+| WebSocket | `/ws?token={jwt}` | 实时消息（私聊+群聊） |
 
 ---
 
@@ -236,6 +256,19 @@ DEEPSEEK_API_KEY=sk-your-key-here
 }
 ```
 
+**群消息：**
+```json
+{
+  "type": "group_message",
+  "payload": {
+    "sender_id": "uuid",
+    "group_id": "uuid",
+    "content": "Hello group!"
+  }
+}
+→ 服务端广播给群内所有在线成员
+```
+
 **心跳：**
 ```json
 {"type": "ping"}
@@ -265,8 +298,9 @@ pytest -v
 如果你正在准备后端岗位面试，这个项目可以展示以下能力：
 
 1. **AI 应用开发** — 集成 DeepSeek API + 连续对话 + Tool Calling
-2. **实时通信** — WebSocket 全双工通信 + 在线状态管理
-3. **异步编程** — FastAPI + SQLAlchemy Async + asyncpg 全链路异步
-4. **数据库设计** — PostgreSQL 表设计 + SQLAlchemy ORM
-5. **部署运维** — systemd + Nginx + 云服务器上线
-6. **安全意识** — bcrypt 密码哈希、JWT 鉴权、文件类型校验
+2. **实时通信** — WebSocket 全双工通信 + 在线状态管理 + 群消息广播
+3. **群聊系统** — 群组 CRUD + 角色权限 + 消息多播路由（私聊→广播模式切换）
+4. **异步编程** — FastAPI + SQLAlchemy Async + asyncpg 全链路异步
+5. **数据库设计** — PostgreSQL 表设计 + SQLAlchemy ORM + 多关联关系建模
+6. **部署运维** — systemd + Nginx + 云服务器上线
+7. **安全意识** — bcrypt 密码哈希、JWT 鉴权、文件类型校验

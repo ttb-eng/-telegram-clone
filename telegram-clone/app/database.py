@@ -77,7 +77,7 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
 
-    # Migration: add is_recalled / recalled_at columns if missing
+    # Migration: add missing columns to existing tables
     async with engine.begin() as conn:
         def _migrate(sync_conn):
             from sqlalchemy import inspect
@@ -90,6 +90,10 @@ async def init_db():
             if "recalled_at" not in columns:
                 sync_conn.exec_driver_sql(
                     "ALTER TABLE messages ADD COLUMN recalled_at TIMESTAMP"
+                )
+            if "group_id" not in columns:
+                sync_conn.exec_driver_sql(
+                    "ALTER TABLE messages ADD COLUMN group_id NUMERIC"
                 )
         await conn.run_sync(_migrate)
 

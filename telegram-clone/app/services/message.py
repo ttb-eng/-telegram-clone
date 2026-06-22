@@ -23,6 +23,21 @@ async def create_message(
     return msg
 
 
+async def create_group_message(
+    db: AsyncSession, sender: User, group_id: uuid.UUID, content: str, msg_type: str = "text"
+) -> Message:
+    msg = Message(
+        sender_id=sender.id,
+        group_id=group_id,
+        content=content,
+        msg_type=msg_type,
+    )
+    db.add(msg)
+    await db.commit()
+    await db.refresh(msg)
+    return msg
+
+
 async def get_chat_history(
     db: AsyncSession,
     user_id: uuid.UUID,

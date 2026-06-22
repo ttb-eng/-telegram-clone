@@ -10,6 +10,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
     deepseek_api_key: str = ""
     deepseek_api_url: str = "https://api.deepseek.com/v1"
+    tavily_api_key: str = ""
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 20
 

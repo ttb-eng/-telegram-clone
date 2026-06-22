@@ -5,7 +5,8 @@ from pydantic import BaseModel
 
 
 class MessageSend(BaseModel):
-    receiver_username: str
+    receiver_username: str | None = None
+    group_id: str | None = None
     content: str
     msg_type: str = "text"
 
@@ -13,7 +14,8 @@ class MessageSend(BaseModel):
 class MessageResponse(BaseModel):
     id: uuid.UUID
     sender_id: uuid.UUID
-    receiver_id: uuid.UUID
+    receiver_id: uuid.UUID | None = None
+    group_id: uuid.UUID | None = None
     sender_username: str = ""
     sender_display_name: str = ""
     content: str
@@ -35,6 +37,15 @@ class ConversationPreview(BaseModel):
     last_message: str
     last_message_time: datetime
     unread_count: int
+
+
+class GroupConversationPreview(BaseModel):
+    group_id: uuid.UUID
+    group_name: str
+    last_message: str
+    last_message_time: datetime
+    unread_count: int
+    member_count: int
 
 
 class ReadReceiptResponse(BaseModel):

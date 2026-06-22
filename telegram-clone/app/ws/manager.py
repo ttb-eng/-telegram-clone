@@ -41,6 +41,30 @@ class ConnectionManager:
     async def broadcast_to_user(self, user_id: uuid.UUID, message: dict):
         await self.send_personal(user_id, message)
 
+    async def send_group(self, group_id: uuid.UUID, message: dict, exclude_user_id: uuid.UUID | None = None):
+        from app.redis_client import get_redis
+        try:
+            redis_conn = await get_redis()
+            pattern = f"user:online:*"
+            keys = await redis_conn.keys(pattern)
+            online_users = set()
+            for k in keys:
+                uid_str = k.decode().split(":")[-1]
+                online_users.add(uuid.UUID(uid_str))
+        except Exception:
+            online_users = set()
+
+        # Send to group members who are online
+        from app.database import async_session_factory
+        from app.services.group import get_group_member_ids
+        async with async_session_factory() as session:
+            member_ids = await get_group_member_ids(session, group_id)
+            for mid in member_ids:
+                if exclude_user_id and mid == exclude_user_id:
+                    continue
+                if mid in online_users:
+                    await self.send_personal(mid, message)
+
     async def _set_online(self, user_id: uuid.UUID, online: bool):
         try:
             redis_conn = await get_redis()
@@ -91,37 +115,62 @@ async def handle_websocket(websocket: WebSocket):
             if msg_type == "message":
                 payload = raw.get("payload", {})
                 receiver_str = payload.get("receiver_id")
+                group_str = payload.get("group_id")
                 content = payload.get("content", "")
                 msg_id = raw.get("msg_id", str(uuid.uuid4()))
 
+                from app.database import async_session_factory
+                from sqlalchemy import select
+                from app.models.user import User
 
+                async with async_session_factory() as session:
+                    sender_result = await session.execute(select(User).where(User.id == user_id))
+                    sender_user = sender_result.scalar_one_or_none()
+                    if not sender_user:
+                        continue
 
+                    # Group message
+                    if group_str:
+                        group_uuid = uuid.UUID(group_str)
+                        from app.services.message import create_group_message
+                        msg = await create_group_message(session, sender_user, group_uuid, content, "text")
 
-                receiver_uuid = uuid.UUID(receiver_str) if receiver_str else None
-                if receiver_uuid:
-                    from app.redis_client import get_redis
-                    # 存消息到数据库
-                    from app.database import async_session_factory
-                    async with async_session_factory() as session:
-                        #查数据库，找到当前 WebSocket 用户对应的 User 对象。
-                        from sqlalchemy import select
-                        from app.models.user import User
-                        sender_result=await session.execute(select(User).where(User.id == user_id))
-                        sender_user=sender_result.scalar_one_or_none()
+                        msg_payload = {
+                            "type": "new_message",
+                            "payload": {
+                                "msg_id": str(msg.id),
+                                "sender_id": str(user_id),
+                                "group_id": group_str,
+                                "content": content,
+                                "sender_username": sender_user.username,
+                                "sender_display_name": sender_user.display_name,
+                                "created_at": msg.created_at.isoformat(),
+                            },
+                        }
 
-                        #查 receiver 的用户对象
-                        receiver_result=await session.execute(select(User).where(User.id == receiver_uuid))
-                        receiver_user=receiver_result.scalar_one_or_none()
+                        await manager.send_group(group_uuid, msg_payload, exclude_user_id=user_id)
+
+                        await websocket.send_json({
+                            "type": "message_ack",
+                            "payload": {"msg_id": msg_id, "status": "delivered"},
+                        })
+                        continue
+
+                    # Private message
+                    receiver_uuid = uuid.UUID(receiver_str) if receiver_str else None
+                    if receiver_uuid:
+                        from app.redis_client import get_redis
+                        receiver_result = await session.execute(select(User).where(User.id == receiver_uuid))
+                        receiver_user = receiver_result.scalar_one_or_none()
 
                         if sender_user and receiver_user:
                             from app.services.message import create_message
-                            await create_message(session,sender_user,receiver_user,content,"text")
+                            await create_message(session, sender_user, receiver_user, content, "text")
 
                             if receiver_user.username == 'ai_bot':
                                 from app.services.deepseek import get_ai_reply_with_tools
                                 from app.services.message import get_recent_context
 
-                                # 取最近 20 条聊天记录，构建上下文
                                 recent_msgs = await get_recent_context(
                                     session, sender_user.id, receiver_user.id
                                 )
@@ -138,49 +187,47 @@ async def handle_websocket(websocket: WebSocket):
                                     full_reply += chunk
 
                                 await create_message(session, receiver_user, sender_user, full_reply, "text")
-                                ai_msg={
-                                    "type":"new_message",
-                                    "payload":{
-                                        "msg_id":str(uuid.uuid4()),
-                                        "sender_id":str(receiver_user.id),
-                                        "receiver_id":str(sender_user.id),
-                                        "content":full_reply,
-                                        "created_at":__import__("datetime").datetime.now().isoformat(),
+                                ai_msg = {
+                                    "type": "new_message",
+                                    "payload": {
+                                        "msg_id": str(uuid.uuid4()),
+                                        "sender_id": str(receiver_user.id),
+                                        "receiver_id": str(sender_user.id),
+                                        "content": full_reply,
+                                        "created_at": __import__("datetime").datetime.now().isoformat(),
                                     },
-
                                 }
-                                await manager.send_personal(sender_user.id,ai_msg)
-                                
+                                await manager.send_personal(sender_user.id, ai_msg)
 
-                    msg_payload = {
-                        "type": "new_message",
-                        "payload": {
-                            "msg_id": msg_id,
-                            "sender_id": str(user_id),
-                            "receiver_id": receiver_str,
-                            "content": content,
-                            "created_at": __import__("datetime").datetime.now().isoformat(),
-                        },
-                    }
+                        msg_payload = {
+                            "type": "new_message",
+                            "payload": {
+                                "msg_id": msg_id,
+                                "sender_id": str(user_id),
+                                "receiver_id": receiver_str,
+                                "content": content,
+                                "created_at": __import__("datetime").datetime.now().isoformat(),
+                            },
+                        }
 
-                    online = await manager.get_online_status(receiver_uuid)
-                    if online:
-                        await manager.send_personal(receiver_uuid, msg_payload)
-                    else:
-                        try:
-                            redis_conn = await get_redis()
-                            await redis_conn.lpush(
-                                f"offline_messages:{receiver_uuid}",
-                                json.dumps(msg_payload, default=str),
-                            )
-                            await redis_conn.ltrim(f"offline_messages:{receiver_uuid}", 0, 999)
-                        except Exception as e:
-                            logger.warning(f"Failed to store offline message: {e}")
+                        online = await manager.get_online_status(receiver_uuid)
+                        if online:
+                            await manager.send_personal(receiver_uuid, msg_payload)
+                        else:
+                            try:
+                                redis_conn = await get_redis()
+                                await redis_conn.lpush(
+                                    f"offline_messages:{receiver_uuid}",
+                                    json.dumps(msg_payload, default=str),
+                                )
+                                await redis_conn.ltrim(f"offline_messages:{receiver_uuid}", 0, 999)
+                            except Exception as e:
+                                logger.warning(f"Failed to store offline message: {e}")
 
-                    await websocket.send_json({
-                        "type": "message_ack",
-                        "payload": {"msg_id": msg_id, "status": "delivered"},
-                    })
+                        await websocket.send_json({
+                            "type": "message_ack",
+                            "payload": {"msg_id": msg_id, "status": "delivered"},
+                        })
 
             elif msg_type == "typing":
                 receiver_str = raw.get("receiver_id")
