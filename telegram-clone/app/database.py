@@ -93,7 +93,7 @@ async def init_db():
                 )
             if "group_id" not in columns:
                 sync_conn.exec_driver_sql(
-                    "ALTER TABLE messages ADD COLUMN group_id NUMERIC"
+                    "ALTER TABLE messages ADD COLUMN group_id UUID"
                 )
         await conn.run_sync(_migrate)
 
