@@ -183,9 +183,8 @@ async def handle_websocket(websocket: WebSocket):
                                     context_messages.append({"role": role, "content": msg.content})
 
                                 full_reply = ""
-                                async for chunk in get_ai_reply_with_tools(context_messages):
+                                async for chunk in get_ai_reply_with_tools(context_messages, str(sender_user.id)):
                                     full_reply += chunk
-
                                 await create_message(session, receiver_user, sender_user, full_reply, "text")
                                 ai_msg = {
                                     "type": "new_message",

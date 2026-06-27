@@ -10,7 +10,7 @@ from collections.abc import AsyncGenerator
 logger = logging.getLogger(__name__)
 
 
-async def get_ai_reply_with_tools(messages: list) -> AsyncGenerator[str, None]:
+async def get_ai_reply_with_tools(messages: list, user_id=None) -> AsyncGenerator[str, None]:
     if not settings.deepseek_api_key:
         yield "AI服务器未配置"
         return
@@ -37,7 +37,7 @@ async def get_ai_reply_with_tools(messages: list) -> AsyncGenerator[str, None]:
                 func_args=json.loads(ct.function.arguments)
                 logger.info(f"AI调用了：{func_name}({func_args})")
 
-                result=await execute_tools(func_name, func_args)
+                result=await execute_tools(func_name, func_args, user_id)
 
                 messages.append({
                     "role":"tool",

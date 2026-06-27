@@ -24,3 +24,7 @@ uploads/*
 
 # pytest
 .pytest_cache/
+
+# Claude Code
+CLAUDE.md
+.claude/

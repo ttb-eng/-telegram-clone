@@ -75,14 +75,34 @@ TOOLS=[
 
         },
     },
+    {
+        "type":"function",
+        "function":{
+            "name":"search_knowledge",
+            "description":"查询用户上传的文档知识库，获取相关文档内容。当用户询问关于自己上传的文件、文档内容时使用此工具。",
+            "parameters":{
+                "type":"object",
+                "properties":{
+                    "query":{
+                        "type":"string",
+                        "description":"在文档知识库中搜索的关键词或问题",
+                    }
+                },
+                "required":["query"],
+            },
+
+        },
+    },
 ]
 
 
 
-async def execute_tools(name:str,args:dict)->str:
-    func=TOOLS_FUNCTIONS.get(name)
+async def execute_tools(name: str, args: dict, user_id=None) -> str:
+    func = TOOLS_FUNCTIONS.get(name)
     if not func:
         return f"还没有{name}功能"
+    if user_id is not None and "user_id" in func.__code__.co_varnames:
+        return await func(user_id=user_id, **args)
     return await func(**args)
 
 async def _get_time(city:str)->str:
@@ -133,8 +153,27 @@ async def _web_search(query: str) -> str:
     except Exception as e:
         return f"搜索失败: {e}"
 
-TOOLS_FUNCTIONS={
-    "get_time":_get_time,
-    "get_weather":_get_weather,
-    "web_search":_web_search
+async def _search_knowledge(query: str, user_id=None) -> str:
+    if user_id is None:
+        return "无法确定用户身份，请先登录"
+    from app.services.rag import search_similar
+    from uuid import UUID
+
+    uid = UUID(user_id) if isinstance(user_id, str) else user_id
+    chunks = await search_similar(query, uid, top_k=5)
+    if not chunks:
+        return "你的文档知识库中暂无相关内容"
+
+    lines = []
+    for i, c in enumerate(chunks):
+        filename = c["metadata"].get("filename", "未知文档")
+        lines.append(f"[{i+1}] 来自《{filename}》: {c['content']}")
+    return "\n\n".join(lines)
+
+
+TOOLS_FUNCTIONS = {
+    "get_time": _get_time,
+    "get_weather": _get_weather,
+    "web_search": _web_search,
+    "search_knowledge": _search_knowledge,
 }

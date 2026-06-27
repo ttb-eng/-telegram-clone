@@ -11,7 +11,8 @@
 | 亮点 | 说明 |
 |------|------|
 | AI Bot + 连续对话 | 集成 DeepSeek API，支持多轮上下文记忆 |
-| Tool Calling | AI 可调用工具：查时间 / 查天气 / 联网搜索 |
+| Tool Calling | AI 可调用工具：查时间 / 查天气 / 联网搜索 / 文档知识库 |
+| RAG 文档问答 | ChromaDB + sentence-transformers，上传文档后 AI 基于文档回答 |
 | WebSocket 实时通信 | 消息推送、在线状态、输入状态、离线消息队列 |
 | 群聊系统 | 创建群组、成员管理、消息多播广播 |
 | 异步架构 | FastAPI + SQLAlchemy Async + asyncpg 全异步链路 |
@@ -29,6 +30,9 @@
 | **JWT** (python-jose) | 用户认证 |
 | **bcrypt** (passlib) | 密码哈希 |
 | **DeepSeek API** | AI 对话引擎 |
+| **ChromaDB** | 向量数据库（文档检索） |
+| **sentence-transformers** | 文本向量化（Embedding） |
+| **PyPDF2** | PDF 文件解析 |
 | **Nginx** | 反向代理 |
 | **systemd** | 进程守护 + 开机自启 |
 | **Docker** | 容器化部署 |
@@ -46,7 +50,8 @@ telegram-clone/
 │   │   ├── user.py
 │   │   ├── friend.py
 │   │   ├── message.py
-│   │   └── group.py
+│   │   ├── group.py
+│   │   └── document.py      # 文档元数据
 │   ├── schemas/             # Pydantic 请求/响应模型
 │   │   ├── user.py
 │   │   ├── friend.py
@@ -58,7 +63,8 @@ telegram-clone/
 │   │   ├── friends.py       # 好友管理
 │   │   ├── messages.py      # 消息发送/历史/搜索/撤回
 │   │   ├── groups.py        # 群组管理
-│   │   └── upload.py        # 文件上传
+│   │   ├── upload.py        # 文件上传
+│   │   └── ai.py            # RAG 文档上传/搜索/问答
 │   ├── services/            # 业务逻辑层
 │   │   ├── auth.py          # JWT 签发 & 验证
 │   │   ├── user.py
@@ -66,10 +72,13 @@ telegram-clone/
 │   │   ├── message.py       # 含 AI 连续对话上下文
 │   │   ├── group.py         # 群组业务逻辑
 │   │   ├── deepseek.py      # DeepSeek AI 流式回复 + Tool Calling
+│   │   ├── rag.py           # RAG 文档向量化+检索
 │   │   └── tools.py         # Tool Calling 工具定义
 │   └── ws/
 │       └── manager.py       # WebSocket 连接管理
 ├── tests/                   # pytest 测试
+├── uploads/                 # 上传文件目录
+├── chroma_data/             # ChromaDB 向量数据
 ├── docker-compose.yml       # 一键部署
 ├── Dockerfile
 ├── requirements.txt
@@ -170,6 +179,17 @@ systemctl status telegram-clone     # 查看状态
 |------|------|------|
 | POST | `/api/upload` | 上传文件（类型/大小校验） |
 
+### RAG 文档问答
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `/api/ai/documents` | 上传文档（支持 TXT/PDF） |
+| GET | `/api/ai/documents` | 我的文档列表 |
+| DELETE | `/api/ai/documents/{id}` | 删除文档 |
+| POST | `/api/ai/rag-query` | 基于文档的 RAG 问答 |
+
+数据流：上传 → 分块(500字/50重叠) → sentence-transformers 向量化(384维) → ChromaDB 存储 → 用户提问 → 向量检索(余弦相似度 top5) → 拼上下文 → DeepSeek 生成回答
+
 ### 实时
 
 | 协议 | 路径 | 说明 |
@@ -203,7 +223,8 @@ AI 可以调用以下工具：
 |------|------|------|
 | `get_time` | 查询指定时区的当前时间 | "现在几点？" |
 | `get_weather` | 查询城市天气 | "北京天气怎么样？" |
-| `web_search` | 联网搜索最新信息 | "今天有什么新闻？" |
+| `web_search` | 联网搜索最新信息（Tavily API） | "今天有什么新闻？" |
+| `search_knowledge` | 检索用户上传的文档知识库 | "我文档里提到了什么？" |
 
 配置方式：在 `.env` 中填入 DeepSeek API Key：
 
@@ -289,6 +310,8 @@ pytest -v
 | `REDIS_URL` | Redis 连接串 | `redis://localhost:6379/0` |
 | `SECRET_KEY` | JWT 签名密钥 | (需修改) |
 | `DEEPSEEK_API_KEY` | DeepSeek API 密钥 | (可选) |
+| `TAVILY_API_KEY` | Tavily 联网搜索 API 密钥 | (可选) |
+| `CHROMA_DB_PATH` | ChromaDB 向量数据存储路径 | `./chroma_data` |
 | `MAX_UPLOAD_SIZE_MB` | 上传文件大小限制 | 20 |
 
 ---
@@ -298,9 +321,10 @@ pytest -v
 如果你正在准备后端岗位面试，这个项目可以展示以下能力：
 
 1. **AI 应用开发** — 集成 DeepSeek API + 连续对话 + Tool Calling
-2. **实时通信** — WebSocket 全双工通信 + 在线状态管理 + 群消息广播
-3. **群聊系统** — 群组 CRUD + 角色权限 + 消息多播路由（私聊→广播模式切换）
-4. **异步编程** — FastAPI + SQLAlchemy Async + asyncpg 全链路异步
-5. **数据库设计** — PostgreSQL 表设计 + SQLAlchemy ORM + 多关联关系建模
-6. **部署运维** — systemd + Nginx + 云服务器上线
-7. **安全意识** — bcrypt 密码哈希、JWT 鉴权、文件类型校验
+2. **RAG 文档问答** — ChromaDB + sentence-transformers + 文档上传→向量化→检索→增强回答
+3. **实时通信** — WebSocket 全双工通信 + 在线状态管理 + 群消息广播
+4. **群聊系统** — 群组 CRUD + 角色权限 + 消息多播路由（私聊→广播模式切换）
+5. **异步编程** — FastAPI + SQLAlchemy Async + asyncpg 全链路异步
+6. **数据库设计** — PostgreSQL 表设计 + SQLAlchemy ORM + 多关联关系建模
+7. **部署运维** — systemd + Nginx + 云服务器上线
+8. **安全意识** — bcrypt 密码哈希、JWT 鉴权、文件类型校验
