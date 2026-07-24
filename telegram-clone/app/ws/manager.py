@@ -168,7 +168,7 @@ async def handle_websocket(websocket: WebSocket):
                             await create_message(session, sender_user, receiver_user, content, "text")
 
                             if receiver_user.username == 'ai_bot':
-                                from app.services.deepseek import get_ai_reply_with_tools
+                                from app.config import settings
                                 from app.services.message import get_recent_context
 
                                 recent_msgs = await get_recent_context(
@@ -182,8 +182,15 @@ async def handle_websocket(websocket: WebSocket):
                                     role = "user" if msg.sender_id == sender_user.id else "assistant"
                                     context_messages.append({"role": role, "content": msg.content})
 
+                                if settings.use_langchain_agent:
+                                    from app.services.langchain_bot import get_ai_reply_langchain
+                                    get_reply = get_ai_reply_langchain
+                                else:
+                                    from app.services.deepseek import get_ai_reply_with_tools
+                                    get_reply = get_ai_reply_with_tools
+
                                 full_reply = ""
-                                async for chunk in get_ai_reply_with_tools(context_messages, str(sender_user.id)):
+                                async for chunk in get_reply(context_messages, str(sender_user.id)):
                                     full_reply += chunk
                                 await create_message(session, receiver_user, sender_user, full_reply, "text")
                                 ai_msg = {

@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     upload_dir: str = "uploads"
     max_upload_size_mb: int = 20
     chroma_db_path: str = str(_PROJECT_ROOT / "chroma_data")
+    use_langchain_agent: bool = False
 
     model_config = {
         "env_file": str(_PROJECT_ROOT / ".env"),
