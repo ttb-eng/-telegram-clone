@@ -316,15 +316,4 @@ pytest -v
 
 ---
 
-## 面试要点
 
-如果你正在准备后端岗位面试，这个项目可以展示以下能力：
-
-1. **AI 应用开发** — 集成 DeepSeek API + 连续对话 + Tool Calling
-2. **RAG 文档问答** — ChromaDB + sentence-transformers + 文档上传→向量化→检索→增强回答
-3. **实时通信** — WebSocket 全双工通信 + 在线状态管理 + 群消息广播
-4. **群聊系统** — 群组 CRUD + 角色权限 + 消息多播路由（私聊→广播模式切换）
-5. **异步编程** — FastAPI + SQLAlchemy Async + asyncpg 全链路异步
-6. **数据库设计** — PostgreSQL 表设计 + SQLAlchemy ORM + 多关联关系建模
-7. **部署运维** — systemd + Nginx + 云服务器上线
-8. **安全意识** — bcrypt 密码哈希、JWT 鉴权、文件类型校验
