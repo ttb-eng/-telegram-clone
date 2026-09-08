@@ -4,18 +4,24 @@ import uuid
 import logging
 from collections import defaultdict
 
+import redis.asyncio as redis
 from fastapi import WebSocket
-
 
 from app.services.auth import decode_access_token
 from app.redis_client import get_redis
+from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+PUBSUB_CHANNEL = "ws:events"
 
 
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[uuid.UUID, list[WebSocket]] = defaultdict(list)
+        self._pubsub_client = None
+        self._pubsub = None
+        self._listener_task = None
 
     async def connect(self, user_id: uuid.UUID, websocket: WebSocket):
         await websocket.accept()
@@ -30,16 +36,74 @@ class ConnectionManager:
             self.active_connections.pop(user_id, None)
             await self._set_online(user_id, False)
 
-    async def send_personal(self, user_id: uuid.UUID, message: dict):
-        ws_list = self.active_connections.get(user_id, [])
-        for ws in ws_list:
+    async def _send_local(self, user_id: uuid.UUID, message: dict):
+        for ws in self.active_connections.get(user_id, []):
             try:
                 await ws.send_json(message)
             except Exception:
                 pass
 
+    async def send_personal(self, user_id: uuid.UUID, message: dict):
+        # 发布到 Redis，各 worker（含本 worker）的 listener 收到后投递给本地连接，
+        # 从而保证不同 worker 上的连接也能互相收发消息。
+        try:
+            redis_conn = await get_redis()
+            await redis_conn.publish(
+                PUBSUB_CHANNEL,
+                json.dumps({"target": str(user_id), "message": message}, default=str),
+            )
+        except Exception as e:
+            logger.warning(f"Redis publish failed, fallback to local: {e}")
+            await self._send_local(user_id, message)
+
     async def broadcast_to_user(self, user_id: uuid.UUID, message: dict):
         await self.send_personal(user_id, message)
+
+    async def start_listener(self):
+        try:
+            self._pubsub_client = redis.from_url(settings.redis_url, decode_responses=True)
+            self._pubsub = self._pubsub_client.pubsub()
+            await self._pubsub.subscribe(PUBSUB_CHANNEL)
+            self._listener_task = asyncio.create_task(self._listen())
+        except Exception as e:
+            logger.warning(f"Failed to start pubsub listener: {e}")
+            await self.stop_listener()
+
+    async def _listen(self):
+        try:
+            async for event in self._pubsub.listen():
+                if event.get("type") != "message":
+                    continue
+                try:
+                    data = json.loads(event["data"])
+                    target = uuid.UUID(data["target"])
+                    message = data["message"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                await self._send_local(target, message)
+        except Exception as e:
+            logger.warning(f"pubsub listener stopped: {e}")
+
+    async def stop_listener(self):
+        if self._listener_task:
+            self._listener_task.cancel()
+            try:
+                await self._listener_task
+            except asyncio.CancelledError:
+                pass
+            self._listener_task = None
+        if self._pubsub:
+            try:
+                await self._pubsub.unsubscribe(PUBSUB_CHANNEL)
+            except Exception:
+                pass
+            self._pubsub = None
+        if self._pubsub_client:
+            try:
+                await self._pubsub_client.aclose()
+            except Exception:
+                pass
+            self._pubsub_client = None
 
     async def send_group(self, group_id: uuid.UUID, message: dict, exclude_user_id: uuid.UUID | None = None):
         from app.redis_client import get_redis
@@ -49,7 +113,7 @@ class ConnectionManager:
             keys = await redis_conn.keys(pattern)
             online_users = set()
             for k in keys:
-                uid_str = k.decode().split(":")[-1]
+                uid_str = k.split(":")[-1]
                 online_users.add(uuid.UUID(uid_str))
         except Exception:
             online_users = set()

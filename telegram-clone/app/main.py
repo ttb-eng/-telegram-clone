@@ -31,8 +31,10 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     logger.info("Starting up...")
     await init_db()
+    await manager.start_listener()
     yield
     logger.info("Shutting down...")
+    await manager.stop_listener()
     await close_db()
     await close_redis()
 
@@ -100,4 +102,4 @@ async def websocket_endpoint(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    uvicorn.run("app.main:app", port=8000, reload=True)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=8000, workers=4)
